@@ -1,0 +1,195 @@
+name: Github Actions
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    types:
+      - closed
+    branches: [ "master" ]
+
+jobs:
+  dependancy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+        
+      - name: Build with Maven
+        run: mvn clean install
+
+      - name: Depcheck
+        uses: dependency-check/Dependency-Check_Action@main
+        id: Depcheck
+        with:
+          project: 'BatBat-Game'
+          path: '.'
+          format: 'SARIF'
+          out: 'reports' # this is the default, no need to specify unless you wish to override it
+          args: >
+            --failOnCVSS 10
+            --enableRetired
+      
+      - name: Upload SARIF results file
+        uses: github/codeql-action/upload-sarif@main
+        with:
+          sarif_file: reports/dependency-check-report.sarif
+
+
+  docker-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+        
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+          
+      - name: Test with Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: '.'
+          framework: dockerfile 
+
+
+  static-code-analysis:
+    name: Codacy Analysis CLI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Run Codacy Analysis CLI
+        uses: codacy/codacy-analysis-cli-action@master
+        with:
+          output: results.sarif
+          format: sarif
+          # Adjust severity of non-security issues
+          gh-code-scanning-compat: true
+          # Force 0 exit code to allow SARIF file generation
+          # This will hand over control about PR rejection to the GitHub side
+          max-allowed-issues: 2147483647
+      
+      # Upload the SARIF file generated in the previous step
+      - name: Upload SARIF results file
+        uses: github/codeql-action/upload-sarif@main
+        with:
+          sarif_file: results.sarif
+
+        
+  build:
+    runs-on: ubuntu-latest
+    needs: [dependancy-scan, docker-scan, static-code-analysis]
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Increment version
+        uses: 'mickem/gh-action-bump-maven-version@v1.0.0'
+        with:
+          pom-file: 'pom.xml'
+
+      - name: Save Version
+        run: echo "VERSION=$(grep version pom.xml | grep -v -e '<?xml|~'| head -n 3 | tail -n 1 | sed 's/[[:space:]]//g' | sed -E 's/<.{0,1}version>//g' | awk '{print $1}')" >> $GITHUB_ENV
+
+      - name: Build the Docker image
+        run: docker build --build-arg VERSION=$VERSION -t barminz/batbat:${{ env.VERSION }} .
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Push current version
+        run: docker push barminz/batbat:${{ env.VERSION }}
+
+      - name: Tag latest
+        run: docker tag barminz/batbat:${{ env.VERSION }} barminz/batbat:latest
+
+      - name: Push latest
+        run: docker push barminz/batbat:latest
+
+  sign-image:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+        - name: Checkout Repo
+          uses: actions/checkout@v3
+
+        - name: Save Version
+          run: echo "VERSION=$(grep version pom.xml | grep -v -e '<?xml|~'| head -n 3 | tail -n 1 | sed 's/[[:space:]]//g' | sed -E 's/<.{0,1}version>//g' | awk '{print $1}')" >> $GITHUB_ENV
+
+        - name: Login to Docker Hub
+          uses: docker/login-action@v3
+          with:
+            username: ${{ secrets.DOCKER_HUB_USER }}
+            password: ${{ secrets.DOCKER_HUB_TOKEN }}
+      
+        - name: Install Cosign
+          uses: sigstore/cosign-installer@v3.5.0
+          
+        - name: Write signing key to disk
+          run: 'echo "$KEY" > cosign.key'
+          shell: bash
+          env:
+            KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+            
+        - name: Sign the published Docker image
+          env:
+            COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          run: |
+           cosign sign --key cosign.key barminz/batbat:${{ env.VERSION }} -y
+           cosign sign --key cosign.key barminz/batbat:latest -y
+
+           
+  verify-image:
+    runs-on: ubuntu-latest
+    needs: sign-image
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Save Version
+        run: echo "VERSION=$(grep version pom.xml | grep -v -e '<?xml|~'| head -n 3 | tail -n 1 | sed 's/[[:space:]]//g' | sed -E 's/<.{0,1}version>//g' | awk '{print $1}')" >> $GITHUB_ENV
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.5.0
+          
+      - name: Write signing key to disk
+        run: 'echo "$KEY" > cosign.key'
+        shell: bash
+        env:
+          KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+    
+      - name: Verify Image
+        run: |
+          cosign verify --key cosign.key barminz/batbat:${{ env.VERSION }}
+          cosign verify --key cosign.key barminz/batbat:latest
+           
+
+#  deploy:
+#    needs: build
+#    runs-on: ubuntu-latest
+
+#    steps:
+
+#      - name: Checkout Repo
+#        uses: actions/checkout@v3
+
+ #     - name: Configure AWS Credentials
+#        uses: aws-actions/configure-aws-credentials@v4
+#        with:
+#          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#          aws-region: eu-north-1
+
+ #     - name: Terraform init and apply
+ #       run: |
+  #        cd terraform
+   #       terraform init
+    #      terraform apply -auto-approve

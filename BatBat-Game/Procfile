@@ -1,0 +1,1 @@
+web: java -jar target/BatBatGame.jar --port $PORT target/*.war
