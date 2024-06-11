@@ -1,0 +1,140 @@
+version: 2.1
+
+orbs:
+  discord: antonioned/discord@0.1.0
+  bridgecrew: bridgecrew/bridgecrew@1.0.5
+  aws-eks: circleci/aws-eks@1.0.0
+  kubernetes: circleci/kubernetes@0.11.1
+
+# Define the jobs we want to run for this project
+jobs:
+  build_and_test:
+    docker:
+      - image: cimg/base:2023.03
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run: 
+          name: Create .env
+          command: echo "API_KEY=$API_KEY" > .env
+      - run:
+          name: "Docker Compose (build & run)"
+          command: |
+                  cd weather-app
+                  docker-compose up -d
+      - run:
+          name: Test
+          command: docker exec weather-app-app-1 python3 tests/reachability_test.py
+      - run:
+          name: Gitlab login and push
+          command: |
+                  echo "$GITLAB_TOKEN" | docker login registry.gitlab.com -u $GITLAB_USER --password-stdin
+                  docker tag weather-app-app registry.gitlab.com/barminz1209/circleci-weather:$(git rev-parse --short HEAD)
+                  docker push registry.gitlab.com/barminz1209/circleci-weather:$(git rev-parse --short HEAD)
+                  docker tag weather-app-app registry.gitlab.com/barminz1209/circleci-weather:latest
+                  docker push registry.gitlab.com/barminz1209/circleci-weather:latest
+      # - run: 
+      #     name: "docker login and push"
+      #     command: |
+      #             docker login -u $HUB_USER -p $HUB_TOKEN
+      #             docker image tag weather-app-app $HUB_USER/weather_circleci:$(git rev-parse --short HEAD)
+      #             docker image push $HUB_USER/weather_circleci:$(git rev-parse --short HEAD)
+      #             docker image tag weather-app-app $HUB_USER/weather_circleci:latest
+      #             docker image push $HUB_USER/weather_circleci:latest
+      - discord/status:
+          fail_only: false
+          failure_message: "**${CIRCLE_JOB}** failed. - **${CIRCLE_USERNAME}**."
+          success_message: "**${CIRCLE_JOB}** Success - **${CIRCLE_USERNAME}**."
+          webhook: "$DISCORD_WEBHOOK"
+
+  checkov_tests:
+    executor: bridgecrew/default
+    steps:
+      - checkout
+      - bridgecrew/scan:
+          api-key-variable: BC_API_KEY
+          directory: ./terraform
+          output: json
+          soft-fail: true
+      - discord/status:
+          fail_only: false
+          failure_message: "**${CIRCLE_JOB}** failed. - **${CIRCLE_USERNAME}**."
+          success_message: "**${CIRCLE_JOB}** Success - **${CIRCLE_USERNAME}**."
+          webhook: "$DISCORD_WEBHOOK"
+        
+  terratest:
+    docker:
+      - image: cimg/base:2023.03
+    steps:
+      - checkout
+      - run:
+          name: Install Terraform
+          command: |
+                  sudo apt-get update && sudo apt-get install -y gnupg software-properties-common
+                  wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+                  gpg --no-default-keyring --keyring /usr/share/keyrings/hashicorp-archive-keyring.gpg --fingerprint
+                  echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+                  sudo apt update && sudo apt-get install terraform
+      - run:
+          name: Install Go
+          command: sudo apt update && sudo apt install golang-go
+      - run:
+          name: Install Terratest
+          command: |
+                  cd terraform
+                  go mod init terratest
+                  go mod tidy
+      - run:
+          name: Replace profile with credentials
+          command: |
+                  awk -v "aws_access_key_id=$AWS_ACCESS_KEY_ID" -v "aws_secret_access_key=$AWS_SECRET_ACCESS_KEY" ' \
+                  BEGIN { FS = OFS = "=" } \
+                  $1 == "access_key" { $2 = aws_access_key_id } \
+                  $1 == "secret_key" { $2 = aws_secret_access_key } \
+                  ' terraform/providers.tf
+      - run:
+          name: Run Terratest tests
+          command: |
+                  cd terraform/test
+                  go test -v -timeout 30m
+      - discord/status:
+          fail_only: false
+          failure_message: "**${CIRCLE_JOB}** failed. - **${CIRCLE_USERNAME}**."
+          success_message: "**${CIRCLE_JOB}** Success - **${CIRCLE_USERNAME}**."
+          webhook: "$DISCORD_WEBHOOK"
+
+  deploy-eks:
+    docker:
+      - image: docker.mirror.hashicorp.services/hashicorp/terraform:light
+    steps:
+      - checkout
+      - run:
+          name: Initialize Terraform
+          command: |
+            cd ./terraform
+            terraform init
+      - run:
+          name: Apply Terraform Configuration
+          command: |
+            cd ./terraform
+            terraform apply -auto-approve
+      - discord/status:
+          fail_only: false
+          failure_message: "**${CIRCLE_JOB}** failed. - **${CIRCLE_USERNAME}**."
+          success_message: "**${CIRCLE_JOB}** Success - **${CIRCLE_USERNAME}**."
+          webhook: "$DISCORD_WEBHOOK"
+
+# Orchestrate our job run sequence
+workflows:
+  ci:
+    jobs:
+      - build_and_test
+      - checkov_tests:
+          requires:
+            - build_and_test
+      - terratest:
+          requires:
+            - checkov_tests
+      # - deploy-eks:
+      #     requires:
+      #       - terratest
