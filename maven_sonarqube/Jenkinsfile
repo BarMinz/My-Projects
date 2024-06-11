@@ -1,0 +1,40 @@
+pipeline {
+    agent any
+    tools {
+        jfrog 'jfrog-cli-latest'
+    }
+    stages {
+        stage('Clone') {
+            steps {
+                git branch: 'dev', credentialsId: 'gitlab_credential_id', url: 'http://172.31.30.98/my_projects/calculator'
+            }
+        }
+        stage('SonarQube Tests') {
+            steps {
+                withSonarQubeEnv(installationName: 'SonarQube') {
+                    sh 'mvn clean test sonar:sonar -Dsonar.projectKey=Calculator -Dsonar.projectName="Calculator"'
+                }
+            }
+        }
+        stage('Maven Build') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+        stage('Push to Artifactory') {          
+            steps{
+                dir('/home/ec2-user/workspace/calculator/target') {
+                    jf 'rt u Calculator-1.0-SNAPSHOT.jar libs-snapshot-local/'
+                }
+            }           
+        }
+    }
+    post {
+       success {
+           mail body: "Build ${env.BUILD_NUMBER} Succeed", subject: 'Build Success', to: 'barminz1209@gmail.com'
+       }
+       failure {
+           mail body: "Build ${env.BUILD_NUMBER} Failed", subject: 'Build Failure', to: 'barminz1209@gmail.com'
+       }
+    }
+}
