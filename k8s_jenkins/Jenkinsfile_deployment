@@ -1,0 +1,40 @@
+pipeline {
+    agent any
+    environment {     
+        BUILD_NUM = "${params.BUILD_NUM}"
+        REP = "${params.REP}"
+    }
+
+    stages {       
+        stage('Clone') {
+            steps {
+                git branch: 'main', credentialsId: 'gitlab_credential_id', url: 'http://172.31.30.98/my_projects/weather_helm'
+            }
+        }
+        
+        stage("Update Deployment") {
+            steps{
+                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'HUB_USER', passwordVariable: 'HUB_TOKEN')]) {
+                    sh '''
+                        yq -i '.spec.template.spec.containers[0].image = "$HUB_USER/weather_k8s:$BUILD_NUMBER"' deployment.yaml
+                        yq -i '.spec.replicas = "$REP"' deployment.yaml
+                    '''
+                }
+            }
+        }
+        
+        stage('Connect to EKS') {         
+            steps{   
+                sh 'aws eks update-kubeconfig --name pc-eks --region eu-north-1'
+                sh 'aws eks describe-cluster --name pc-eks --query "cluster.identity.oidc.issuer" --output text'
+            }            
+        }
+        
+        stage('Deploy to EKS') {         
+            steps{   
+            	sh 'kubectl apply -f ingress.yaml'
+                sh 'kubectl apply -f deployment.yaml'      
+            }            
+        }
+    }
+}
