@@ -1,0 +1,14 @@
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/bin/Debug/net8.0/hello
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/bin/Debug/net8.0/hello.deps.json
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/bin/Debug/net8.0/hello.runtimeconfig.json
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/bin/Debug/net8.0/hello.dll
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/bin/Debug/net8.0/hello.pdb
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/hello.GeneratedMSBuildEditorConfig.editorconfig
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/hello.AssemblyInfoInputs.cache
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/hello.AssemblyInfo.cs
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/hello.csproj.CoreCompileInputs.cache
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/hello.dll
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/refint/hello.dll
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/hello.pdb
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/hello.genruntimeconfig.cache
+/home/bar/Desktop/Devops/bar.minz/devops/projects/azure/hello/obj/Debug/net8.0/ref/hello.dll

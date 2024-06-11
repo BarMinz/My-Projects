@@ -1,0 +1,78 @@
+
+trigger:
+- master
+
+pool:
+  name: Default
+
+variables:
+  majorVersion: '1'
+  minorVersion: '0'
+  artifactVersion: ''
+
+steps:
+# Checkout repo
+- checkout: self
+  clean: true
+  displayName: 'Clone'
+
+# Prepare SonarQube
+- task: SonarQubePrepare@5
+  inputs:
+    SonarQube: 'SonarQube'
+    scannerMode: 'MSBuild'
+    projectKey: 'hello_hello_8b888800-6b0b-4daa-9d33-af3252933e8d'
+  displayName: 'Prepare SonarQube'
+
+# Build the dotnet file
+- task: DotNetCoreCLI@2
+  inputs:
+    command: 'build'
+    arguments: '--configuration releases'
+    projects: '/home/bar/myagent/_work/1/s/hello/hello.csproj'
+  displayName: 'Build'
+
+# Code Analysis
+- task: SonarQubeAnalyze@5
+  inputs:
+    jdkversion: 'JAVA_HOME_17_X64'
+  displayName: 'Code Analysis'
+
+# Publish Results
+- task: SonarQubePublish@5
+  inputs:
+    pollingTimeoutSec: '300'
+  displayName: 'Publish Results'
+
+# Increment Version
+- script: |
+    major_version=${env:majorVersion}
+    minor_version=${env:minorVersion}
+    build_number=$(Build.BuildNumber)
+    new_version="$major_version.$minor_version.$build_number"
+    echo "New artifact version: $new_version"
+    artifactVersion="$new_version"
+  displayName: 'Increment Version'
+
+# echo the variable
+- script: echo "Version number is $(artifactVersion)"
+  displayName: 'Display Version Number'
+
+# tag the build
+- task: artifactstagger@1
+  inputs:
+    EndpointType: 'integrated'
+    StageNameTag: false
+    CustomTags: '$(sourceBranch)_$(artifactVersion)'
+  displayName: 'Tag Build'
+
+# - publish: $(System.DefaultWorkingDirectory)/hello/bin/Debug/net8.0/hello.dll
+#   artifact: hello.dll
+
+# Package the nuget artifact
+- script: dotnet pack -p Version=1.0.$(Build.BuildId) /home/bar/myagent/_work/1/s/hello/hello.csproj
+  displayName: 'Package' 
+
+# Publish the nuget artifact
+- script: dotnet nuget push --source "https://pkgs.dev.azure.com/barminz1209/_packaging/barminz1209/nuget/v3/index.json" --api-key az /home/bar/myagent/_work/1/s/hello/bin/Release/hello.1.0.$(Build.BuildId).nupkg
+  displayName: 'publish NuGet Package'
