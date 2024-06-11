@@ -6,3 +6,4 @@
 .terraform/*
 .terraform.lock.hcl
 azure/myagent
+venv*
