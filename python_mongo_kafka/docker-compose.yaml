@@ -1,0 +1,22 @@
+version: '3'
+services:
+  app:
+    restart: always
+    build: ./app
+    command: gunicorn -w 4 -b 0.0.0.0:9091 wsgi:app
+
+  nginx:
+    container_name: nginx
+    restart: always
+    build: ./nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+
+  mongodb:
+    image: mongo:6-jammy
+    ports:
+      - '27017:27017'
+    volumes:
+      - ./mongodb/data:/data/db
